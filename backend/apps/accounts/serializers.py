@@ -3,9 +3,17 @@ from django.contrib.auth.password_validation import (
     validate_password as django_validate_password,
 )
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from rest_framework import serializers
 
 User = get_user_model()
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ("id", "username", "email", "email_verified")
+        read_only_fields = fields
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -67,14 +75,12 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
         validated_data.pop("password_confirmation")
-
         password = validated_data.pop("password")
-
         user = User.objects.create_user(
             password=password,
             **validated_data,
-        )
-
+            )
         return user
