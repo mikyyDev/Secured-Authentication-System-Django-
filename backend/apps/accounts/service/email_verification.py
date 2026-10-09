@@ -2,13 +2,58 @@
 import hashlib
 import secrets
 from datetime import timedelta
+from urllib.parse import unquote
 
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
 from ..models import EmailVerificationToken
+from .email_delivery import send_verification_email
 
 TOKEN_EXPIRATION_MINUTES = 30
+
+
+def request_email_verification(email):
+    """
+    Request a verification email without revealing whether
+    an account exists.
+    """
+
+    normalized_email = email.strip().lower()
+
+    # Basic resend throttling for this email address.
+    cache_key = (
+        f"email-verification-resend:{normalized_email}"
+    )
+
+    if not cache.add(cache_key, True, timeout=60):
+        return
+
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+
+    user = User.objects.filter(
+        email__iexact=normalized_email,
+        is_active=True,
+    ).first()
+
+    if user is None or user.email_verified:
+        return
+
+    with transaction.atomic():
+        # Invalidate previous unused verification links.
+        EmailVerificationToken.objects.filter(
+            user=user,
+            used_at__isnull=True,
+        ).update(used_at=timezone.now())
+
+        raw_token = generate_email_verification_token(user)
+
+        transaction.on_commit(
+            lambda: send_verification_email(user, raw_token)
+        )
 
 
 def generate_email_verification_token(user):
@@ -39,6 +84,11 @@ def verify_email_token(raw_token):
 
     Returns a status string describing the outcome.
     """
+
+    if not isinstance(raw_token, str):
+        return "invalid"
+
+    raw_token = unquote(raw_token).strip()
 
     if not raw_token or len(raw_token) > 256:
         return "invalid"

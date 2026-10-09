@@ -1,36 +1,36 @@
-from django.db import transaction
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import RegisterSerializer, UserSerializer
+from .serializers import (
+    RegisterSerializer,
+    ResendVerificationSerializer,
+    UserSerializer,
+)
 from .service.email_verification import (
-    generate_email_verification_token,
+    request_email_verification,
     verify_email_token,
 )
+from .service.registration import register_user
 
 
 class RegisterView(APIView):
+    permission_classes = (AllowAny,)
 
-    @transaction.atomic
     def post(self, request):
-        serializer = RegisterSerializer(
-            data=request.data
-        )
-
+        serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user = serializer.save()
-
-        verification_token = generate_email_verification_token(
-            user
-        )
+        user = register_user(serializer=serializer)
 
         return Response(
             {
                 "user": UserSerializer(user).data,
-                "verification_token": verification_token,
+                "detail": (
+                    "Account created. Please check your email "
+                    "to verify your address."
+                ),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -75,4 +75,27 @@ class VerifyEmailView(APIView):
         return Response(
             {"detail": "Invalid verification token."},
             status=status.HTTP_400_BAD_REQUEST,
+        )
+    
+class ResendVerificationView(APIView):
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        serializer = ResendVerificationSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        request_email_verification(
+            serializer.validated_data["email"]
+        )
+
+        return Response(
+            {
+                "detail": (
+                    "If an account requires verification, "
+                    "instructions will be sent shortly."
+                )
+            },
+            status=status.HTTP_200_OK,
         )

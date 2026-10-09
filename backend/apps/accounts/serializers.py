@@ -9,6 +9,13 @@ from rest_framework import serializers
 User = get_user_model()
 
 
+class ResendVerificationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User

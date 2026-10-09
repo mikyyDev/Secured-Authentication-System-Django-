@@ -29,7 +29,13 @@ SECRET_KEY = 'django-insecure-rs(%fhv=w--bl05(eh@s+nf^f8bveddv+&p2c&2zij*7b_b5^j
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "[::1]",
+    "testserver",
+]
 
 
 # Application definition
@@ -152,3 +158,12 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+# Email configuration for local development.
+EMAIL_BACKEND = (
+    "django.core.mail.backends.console.EmailBackend"
+)
+
+DEFAULT_FROM_EMAIL = "AuthForge <no-reply@authforge.local>"
+
+FRONTEND_URL = "http://localhost:5173"
