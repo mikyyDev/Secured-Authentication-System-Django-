@@ -1,19 +1,97 @@
+from django.contrib.auth import login, logout
+from django.http import JsonResponse
+from django.middleware.csrf import get_token
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
+from django.views.decorators.http import require_GET
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .serializers import (
+    LoginSerializer,
     RegisterSerializer,
     ResendVerificationSerializer,
     UserSerializer,
 )
+from .service.authentication import authenticate_user
 from .service.email_verification import (
     request_email_verification,
     verify_email_token,
 )
 from .service.registration import register_user
 
+
+@require_GET
+@ensure_csrf_cookie
+def csrf_cookie_view(request):
+    return JsonResponse({
+        "csrfToken": get_token(request)
+    })
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class CsrfProtectedAPIView(APIView):
+    pass
+
+
+class LogoutView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        logout(request)
+
+        return Response(
+            {"detail": "Logout successful."},
+            status=status.HTTP_200_OK,
+        )
+
+class MeView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+
+
+class LoginView(CsrfProtectedAPIView):
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = authenticate_user(
+            request,
+            identifier=serializer.validated_data["identifier"],
+            password=serializer.validated_data["password"],
+        )
+
+        if user is None:
+            return Response(
+                {
+                    "detail": (
+                        "Invalid credentials or account not verified."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        login(request, user)
+
+        return Response(
+            {
+                "user": UserSerializer(user).data,
+                "detail": "Login successful.",
+            },
+            status=status.HTTP_200_OK,
+        )
 
 class RegisterView(APIView):
     permission_classes = (AllowAny,)
