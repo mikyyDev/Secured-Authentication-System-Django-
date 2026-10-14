@@ -11,6 +11,8 @@ from rest_framework.views import APIView
 
 from .serializers import (
     LoginSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
     RegisterSerializer,
     ResendVerificationSerializer,
     UserSerializer,
@@ -20,7 +22,26 @@ from .service.email_verification import (
     request_email_verification,
     verify_email_token,
 )
+from .service.password_reset import (
+    request_password_reset,
+    reset_password_with_token,
+)
+from apps.security.logging import (
+    log_login_failure,
+    log_login_success,
+    log_logout,
+    log_password_reset_failure,
+    log_password_reset_request,
+    log_password_reset_success,
+)
+from apps.security.throttling import (
+    ForgotPasswordRateThrottle,
+    LoginRateThrottle,
+    ResetPasswordSubmitRateThrottle,
+)
 from .service.registration import register_user
+
+
 
 
 @require_GET
@@ -40,6 +61,7 @@ class LogoutView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def post(self, request):
+        log_logout(request, request.user)
         logout(request)
 
         return Response(
@@ -62,6 +84,7 @@ class MeView(APIView):
 
 class LoginView(CsrfProtectedAPIView):
     permission_classes = (AllowAny,)
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -74,6 +97,11 @@ class LoginView(CsrfProtectedAPIView):
         )
 
         if user is None:
+            log_login_failure(
+                request,
+                serializer.validated_data["identifier"],
+                reason="invalid_credentials_or_unverified",
+            )
             return Response(
                 {
                     "detail": (
@@ -84,6 +112,7 @@ class LoginView(CsrfProtectedAPIView):
             )
 
         login(request, user)
+        log_login_success(request, user)
 
         return Response(
             {
@@ -92,6 +121,7 @@ class LoginView(CsrfProtectedAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
 
 class RegisterView(APIView):
     permission_classes = (AllowAny,)
@@ -177,3 +207,69 @@ class ResendVerificationView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = (AllowAny,)
+    throttle_classes = [ForgotPasswordRateThrottle]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+        log_password_reset_request(request, email)
+        request_password_reset(email)
+
+        return Response(
+            {
+                "detail": (
+                    "If an account with this email exists, "
+                    "password reset instructions have been sent."
+                )
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = (AllowAny,)
+    throttle_classes = [ResetPasswordSubmitRateThrottle]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        user, result = reset_password_with_token(
+            raw_token=serializer.validated_data["token"],
+            new_password=serializer.validated_data["password"],
+        )
+
+        if result == "success":
+            log_password_reset_success(request, user)
+            return Response(
+                {"detail": "Password has been reset successfully."},
+                status=status.HTTP_200_OK,
+            )
+
+        log_password_reset_failure(request, reason=result)
+        if result == "expired":
+            return Response(
+                {
+                    "detail": (
+                        "This password reset link has expired. "
+                        "Please request a new password reset."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {"detail": "Invalid or already used password reset token."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+

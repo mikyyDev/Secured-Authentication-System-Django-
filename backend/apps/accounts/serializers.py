@@ -44,6 +44,45 @@ class ResendVerificationSerializer(serializers.Serializer):
         return value.strip().lower()
 
 
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    token = serializers.CharField(
+        trim_whitespace=True,
+    )
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        trim_whitespace=False,
+    )
+    password_confirmation = serializers.CharField(
+        write_only=True,
+        required=True,
+        trim_whitespace=False,
+    )
+
+    def validate_password(self, value):
+        try:
+            django_validate_password(value)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages) from error
+
+        return value
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password_confirmation"]:
+            raise serializers.ValidationError({
+                "password_confirmation": "Passwords do not match."
+            })
+        return attrs
+
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
